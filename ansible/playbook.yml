@@ -1,0 +1,71 @@
+---
+- name: Provision EC2 for Yii2 app with Docker Swarm and NGINX
+  hosts: ec2
+  become: yes
+  vars:
+    ansible_ssh_user: ubuntu
+    nginx_conf_path: /etc/nginx/sites-available/yii2-app
+    repo_url: "https://github.com/{{ github_repository }}.git"
+    app_dir: /opt/yii2-app
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+
+    - name: Install required packages
+      apt:
+        name:
+          - docker.io
+          - nginx
+          - git
+          - python3-pip
+        state: present
+
+    - name: Install Docker SDK for Python
+      pip:
+        name: docker
+        executable: pip3
+
+    - name: Start and enable Docker
+      service:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Initialize Docker Swarm
+      command: docker swarm init
+      register: swarm_init
+      failed_when: swarm_init.rc != 0 and 'already part of a swarm' not in swarm_init.stderr
+
+    - name: Clone the repository
+      git:
+        repo: "{{ repo_url }}"
+        dest: "{{ app_dir }}"
+        version: main
+        accept_hostkey: yes
+
+    - name: Copy NGINX configuration
+      copy:
+        src: ./nginx/yii2-app.conf
+        dest: "{{ nginx_conf_path }}"
+        mode: '0644'
+
+    - name: Enable NGINX configuration
+      file:
+        src: "{{ nginx_conf_path }}"
+        dest: /etc/nginx/sites-enabled/yii2-app
+        state: link
+      notify: Reload NGINX
+
+    - name: Deploy Docker Swarm service
+      command: docker stack deploy -c {{ app_dir }}/docker-compose.yml yii2
+      args:
+        chdir: "{{ app_dir }}"
+
+  handlers:
+    - name: Reload NGINX
+      service:
+        name: nginx
+        state: reloaded
