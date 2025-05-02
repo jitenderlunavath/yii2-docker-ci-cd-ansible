@@ -5,7 +5,7 @@
   vars:
     ansible_ssh_user: ubuntu
     nginx_conf_path: /etc/nginx/sites-available/yii2-app
-    repo_url: "https://github.com/{{ github_repository }}.git"
+    repo_url: "https://github.com/jitenderlunavath/yii2-docker-ci-cd-ansible.git"
     app_dir: /opt/yii2-app
 
   tasks:
