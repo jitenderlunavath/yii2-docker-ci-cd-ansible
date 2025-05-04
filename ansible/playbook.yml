@@ -25,6 +25,7 @@
           - python3-docker
           - python3-venv
           - php-cli  # Required for Composer
+          - php-curl
           - unzip    # Required for Composer
         state: present
 
@@ -78,7 +79,7 @@
         creates: /usr/local/bin/composer
 
     - name: Run composer install in app directory
-      command: composer install --no-dev --optimize-autoloader
+      command: composer install --no-dev --optimize-autoloader --ignore-platform-reqs
       args:
         chdir: "{{ app_dir }}"
       environment:
