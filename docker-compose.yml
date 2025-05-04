@@ -1,15 +1,31 @@
 version: '3.8'
 services:
-  app:
-    image: ${DOCKER_REGISTRY:-ghcr.io}/${GITHUB_REPOSITORY:-user/yii2-app}:latest
+  yii2_web:
+    image: yiisoftware/yii2-php:7.4-apache
+    ports:
+      - "80:80"
+      - "9000:9000"  # Expose PHP-FPM port
+    volumes:
+      - /opt/yii2-app:/app
+    environment:
+      - YII_ENV=prod
     deploy:
       replicas: 2
       restart_policy:
         condition: on-failure
+    networks:
+      - app-network
+  db:
+    image: mysql:8.0
     environment:
-      - YII_ENV=prod
+      - MYSQL_ROOT_PASSWORD=secret
+      - MYSQL_DATABASE=yii2
+    volumes:
+      - db-data:/var/lib/mysql
     networks:
       - app-network
 networks:
   app-network:
     driver: overlay
+volumes:
+  db-data:
