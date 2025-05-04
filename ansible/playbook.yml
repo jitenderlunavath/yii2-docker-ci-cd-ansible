@@ -21,18 +21,20 @@
           - nginx
           - git
           - python3-pip
+          - python3-docker
         state: present
-
-    - name: Install Docker SDK for Python
-      pip:
-        name: docker
-        executable: pip3
 
     - name: Start and enable Docker
       service:
         name: docker
         state: started
         enabled: yes
+
+    - name: Add ubuntu user to docker group
+      user:
+        name: ubuntu
+        groups: docker
+        append: yes
 
     - name: Initialize Docker Swarm
       command: docker swarm init
@@ -46,10 +48,22 @@
         version: main
         accept_hostkey: yes
 
+    - name: Verify docker-compose.yml exists
+      stat:
+        path: "{{ app_dir }}/docker-compose.yml"
+      register: compose_file
+
+    - name: Fail if docker-compose.yml is missing
+      fail:
+        msg: "docker-compose.yml not found in {{ app_dir }}"
+      when: not compose_file.stat.exists
+
     - name: Copy NGINX configuration
       copy:
-        src: ./nginx/yii2-app.conf
+        src: nginx/yii2-app.conf
         dest: "{{ nginx_conf_path }}"
+        owner: root
+        group: root
         mode: '0644'
 
     - name: Enable NGINX configuration
@@ -57,15 +71,19 @@
         src: "{{ nginx_conf_path }}"
         dest: /etc/nginx/sites-enabled/yii2-app
         state: link
-      notify: Reload NGINX
 
-    - name: Deploy Docker Swarm service
-      command: docker stack deploy -c {{ app_dir }}/docker-compose.yml yii2
-      args:
-        chdir: "{{ app_dir }}"
+    - name: Test NGINX configuration
+      command: nginx -t
+      register: nginx_test
+      failed_when: nginx_test.rc != 0
 
-  handlers:
-    - name: Reload NGINX
+    - name: Restart NGINX
       service:
         name: nginx
-        state: reloaded
+        state: restarted
+
+    - name: Deploy Yii2 app with Docker stack
+      docker_stack:
+        name: yii2
+        compose: "{{ app_dir }}/docker-compose.yml"
+        state: present
