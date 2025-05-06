@@ -92,6 +92,12 @@
           COMPOSER_HOME: /root/.composer
         when: git_clone.changed
 
+      - name: Remove existing Docker stack
+        community.docker.docker_stack:
+          state: absent
+          name: yii2
+        ignore_errors: yes
+
       - name: Deploy Yii2 app with Docker stack
         community.docker.docker_stack:
           state: present
