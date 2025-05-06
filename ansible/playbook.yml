@@ -96,7 +96,10 @@
         community.docker.docker_stack:
           state: absent
           name: yii2
-        ignore_errors: yes
+        environment:
+          PYTHONPATH: "{{ venv_dir }}/lib/python3.10/site-packages"
+        vars:
+          ansible_python_interpreter: "{{ venv_dir }}/bin/python3"
 
       - name: Deploy Yii2 app with Docker stack
         community.docker.docker_stack:
