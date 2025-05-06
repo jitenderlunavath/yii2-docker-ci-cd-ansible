@@ -97,3 +97,7 @@
           state: present
           name: yii2
           compose: "{{ app_dir }}/docker-compose.yml"
+        environment:
+          PYTHONPATH: "{{ venv_dir }}/lib/python3.10/site-packages"
+        vars:
+          ansible_python_interpreter: "{{ venv_dir }}/bin/python3"
