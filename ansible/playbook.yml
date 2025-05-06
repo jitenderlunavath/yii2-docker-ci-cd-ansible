@@ -1,130 +1,89 @@
 ---
-- name: Provision EC2 for Yii2 app with Docker Swarm and NGINX
-  hosts: ec2
-  become: yes
-  vars:
-    ansible_ssh_user: ubuntu
-    nginx_conf_path: /etc/nginx/sites-available/yii2-app
-    repo_url: "https://github.com/jitenderlunavath/yii2-docker-ci-cd-ansible.git"
-    app_dir: /opt/yii2-app
-    venv_dir: /opt/ansible-venv
+  - name: Deploy Yii2 application on EC2
+    hosts: ec2
+    become: yes
+    vars:
+      app_dir: /opt/yii2-app
+      repo_url: "https://github.com/jitenderlunavath/yii2-docker-ci-cd-ansible.git"
 
-  tasks:
-    - name: Update apt cache
-      apt:
-        update_cache: yes
-        cache_valid_time: 3600
+    tasks:
+      - name: Update apt package index
+        ansible.builtin.apt:
+          update_cache: yes
+        retries: 3
+        delay: 5
 
-    - name: Install required packages
-      apt:
-        name:
-          - docker.io
-          - nginx
-          - git
-          - python3-pip
-          - python3-docker
-          - python3-venv
-          - php-cli  # Required for Composer
-          - php-curl
-          - unzip    # Required for Composer
-        state: present
+      - name: Install required packages
+        ansible.builtin.apt:
+          name:
+            - git
+            - curl
+            - unzip
+            - python3-pip
+            - python3-apt
+            - php-curl
+            - php-mysql
+            - php-xml
+            - php-mbstring
+            - mysql-client
+          state: present
 
-    - name: Create virtual environment
-      command: python3 -m venv {{ venv_dir }}
-      args:
-        creates: "{{ venv_dir }}/bin/activate"
+      - name: Install Docker
+        ansible.builtin.apt:
+          name:
+            - docker.io
+            - docker-compose
+          state: present
 
-    - name: Install jsondiff and python-docker in virtual environment
-      pip:
-        name:
-          - jsondiff
-          - docker
-        state: present
-        virtualenv: "{{ venv_dir }}"
+      - name: Start and enable Docker service
+        ansible.builtin.systemd:
+          name: docker
+          state: started
+          enabled: yes
 
-    - name: Start and enable Docker
-      service:
-        name: docker
-        state: started
-        enabled: yes
+      - name: Add ubuntu user to docker group
+        ansible.builtin.user:
+          name: ubuntu
+          groups: docker
+          append: yes
 
-    - name: Add ubuntu user to docker group
-      user:
-        name: ubuntu
-        groups: docker
-        append: yes
+      - name: Install Python Docker SDK
+        ansible.builtin.pip:
+          name: docker
+          state: present
 
-    - name: Initialize Docker Swarm
-      command: docker swarm init
-      register: swarm_init
-      failed_when: swarm_init.rc != 0 and 'already part of a swarm' not in swarm_init.stderr
+      - name: Install Composer
+        ansible.builtin.shell: |
+          curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+        args:
+          creates: /usr/local/bin/composer
 
-    - name: Clone the repository
-      git:
-        repo: "{{ repo_url }}"
-        dest: "{{ app_dir }}"
-        version: main
-        accept_hostkey: yes
-        force: yes
+      - name: Clone the repository
+        ansible.builtin.git:
+          repo: "{{ repo_url }}"
+          dest: "{{ app_dir }}"
+          version: main
+          force: yes
+        register: git_clone
 
-    - name: Install Composer
-      get_url:
-        url: https://getcomposer.org/installer
-        dest: /tmp/composer-setup.php
-        mode: '0755'
+      - name: Set permissions for app directory
+        ansible.builtin.file:
+          path: "{{ app_dir }}"
+          owner: root
+          group: root
+          mode: '0755'
+          recurse: yes
 
-    - name: Run Composer installer
-      command: php /tmp/composer-setup.php --install-dir=/usr/local/bin --filename=composer
-      args:
-        creates: /usr/local/bin/composer
+      - name: Run composer install in app directory
+        ansible.builtin.command:
+          cmd: composer install --no-dev --optimize-autoloader --ignore-platform-reqs
+          chdir: "{{ app_dir }}"
+        environment:
+          COMPOSER_HOME: /root/.composer
+        when: git_clone.changed
 
-    - name: Run composer install in app directory
-      command: composer install --no-dev --optimize-autoloader --ignore-platform-reqs
-      args:
-        chdir: "{{ app_dir }}"
-      environment:
-        COMPOSER_HOME: /root/.composer
-
-    - name: Verify docker-compose.yml exists
-      stat:
-        path: "{{ app_dir }}/docker-compose.yml"
-      register: compose_file
-
-    - name: Fail if docker-compose.yml is missing
-      fail:
-        msg: "docker-compose.yml not found in {{ app_dir }}"
-      when: not compose_file.stat.exists
-
-    - name: Copy NGINX configuration
-      copy:
-        src: /home/jitender/yii2-app/nginx/yii2-app.conf
-        dest: "{{ nginx_conf_path }}"
-        owner: root
-        group: root
-        mode: '0644'
-
-    - name: Enable NGINX configuration
-      file:
-        src: "{{ nginx_conf_path }}"
-        dest: /etc/nginx/sites-enabled/yii2-app
-        state: link
-
-    - name: Test NGINX configuration
-      command: nginx -t
-      register: nginx_test
-      failed_when: nginx_test.rc != 0
-
-    - name: Restart NGINX
-      service:
-        name: nginx
-        state: restarted
-
-    - name: Deploy Yii2 app with Docker stack
-      docker_stack:
-        name: yii2
-        compose: "{{ app_dir }}/docker-compose.yml"
-        state: present
-      environment:
-        PYTHONPATH: "{{ venv_dir }}/lib/python3.12/site-packages"
-      vars:
-        ansible_python_interpreter: "{{ venv_dir }}/bin/python3"
+      - name: Deploy Yii2 app with Docker stack
+        community.docker.docker_stack:
+          state: present
+          name: yii2
+          compose: "{{ app_dir }}/docker-compose.yml"
